@@ -1,0 +1,31 @@
+name: Publish to crates.io
+
+# This workflow runs when a new tag is pushed that matches the pattern v*.*.*
+on: 
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run cargo check
+        run: cargo check --all --verbose
+
+      - name: Run cargo test
+        run: cargo test --all --verbose
+
+      - name: Publish to crates.io
+        env:
+          # The API token for crates.io is passed via a GitHub secret
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish
