@@ -35,7 +35,7 @@ rabbitmq-plugins enable rabbitmq_delayed_message_exchange
 
     ```toml
     [dependencies]
-    rabbitmq-worker = { git = "<your-git-repo-url>" } # Or from crates.io when published
+    rabbitmq-worker = "0.1.0"
     serde = { version = "1.0", features = ["derive"] }
     tokio = { version = "1", features = ["full"] }
     log = "0.4"
