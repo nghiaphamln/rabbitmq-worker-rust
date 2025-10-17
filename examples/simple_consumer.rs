@@ -60,8 +60,10 @@ async fn main() {
 
     let handler = Arc::new(MyMessageHandler);
 
-    // Configure the worker
-    let config = WorkerConfig::new("my_app_queue".to_string(), rabbitmq_url).with_prefetch_count(5);
+    // Configure the worker using the new builder pattern
+    let config = WorkerConfig::builder("my_app_queue".to_string(), rabbitmq_url)
+        .prefetch_count(5)
+        .build();
     let worker = Arc::new(GenericRabbitMQWorker::new(handler, config));
 
     let reconnect_delay = Duration::from_secs(5);

@@ -16,73 +16,116 @@ use lapin::{
 };
 use std::sync::Arc;
 
-
 /// Configuration for a `GenericRabbitMQWorker`.
+///
+/// Use the `WorkerConfig::builder()` method to construct this struct.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     /// The name of the queue to consume messages from.
     pub queue_name: String,
     /// The name of the exchange to bind the queue to.
-    /// Defaults to `{queue_name}_exchange` if not specified.
-    pub exchange_name: Option<String>,
+    pub exchange_name: String,
     /// The routing key for the binding between the exchange and the queue.
-    /// Defaults to `{queue_name}.process` if not specified.
-    pub routing_key: Option<String>,
+    pub routing_key: String,
     /// A unique identifier for the consumer on this queue.
-    /// Defaults to `{queue_name}_consumer`.
     pub consumer_tag: String,
     /// The AMQP URL for connecting to the RabbitMQ broker.
     pub rabbitmq_url: String,
     /// The configuration for message retry behavior.
-    /// Defaults to `RetryConfig::masstransit_default()`.
     pub retry_config: RetryConfig,
     /// The number of messages to fetch from the server at a time (QoS prefetch count).
-    /// A value of 1 ensures that messages are processed one at a time.
-    /// Defaults to 1.
     pub prefetch_count: u16,
 }
 
 impl WorkerConfig {
-    /// Creates a simple configuration using convention-based names and default settings.
-    pub fn new(queue_name: String, rabbitmq_url: String) -> Self {
-        let consumer_tag = format!("{}_consumer", queue_name);
+    /// Creates a new `WorkerConfigBuilder` to start building the worker configuration.
+    ///
+    /// # Arguments
+    /// * `queue_name` - The name of the queue to consume from.
+    /// * `rabbitmq_url` - The connection URL for the RabbitMQ broker.
+    pub fn builder(queue_name: String, rabbitmq_url: String) -> WorkerConfigBuilder {
+        WorkerConfigBuilder::new(queue_name, rabbitmq_url)
+    }
+}
+
+/// A builder for creating `WorkerConfig` instances.
+pub struct WorkerConfigBuilder {
+    queue_name: String,
+    rabbitmq_url: String,
+    exchange_name: Option<String>,
+    routing_key: Option<String>,
+    consumer_tag: Option<String>,
+    retry_config: Option<RetryConfig>,
+    prefetch_count: Option<u16>,
+}
+
+impl WorkerConfigBuilder {
+    /// Creates a new builder with the required fields.
+    fn new(queue_name: String, rabbitmq_url: String) -> Self {
         Self {
             queue_name,
+            rabbitmq_url,
             exchange_name: None,
             routing_key: None,
-            consumer_tag,
-            rabbitmq_url,
-            retry_config: RetryConfig::default(),
-            prefetch_count: 1,
+            consumer_tag: None,
+            retry_config: None,
+            prefetch_count: None,
         }
     }
 
-    /// Attaches a custom retry configuration.
-    pub fn with_retry_config(mut self, retry_config: RetryConfig) -> Self {
-        self.retry_config = retry_config;
+    /// Sets a custom exchange name.
+    /// Defaults to `{queue_name}_exchange` if not set.
+    pub fn exchange_name(mut self, exchange_name: String) -> Self {
+        self.exchange_name = Some(exchange_name);
+        self
+    }
+
+    /// Sets a custom routing key.
+    /// Defaults to `{queue_name}.process` if not set.
+    pub fn routing_key(mut self, routing_key: String) -> Self {
+        self.routing_key = Some(routing_key);
+        self
+    }
+
+    /// Sets a custom consumer tag.
+    /// Defaults to `{queue_name}_consumer` if not set.
+    pub fn consumer_tag(mut self, consumer_tag: String) -> Self {
+        self.consumer_tag = Some(consumer_tag);
+        self
+    }
+
+    /// Sets a custom retry configuration.
+    /// Defaults to `RetryConfig::masstransit_default()`.
+    pub fn retry_config(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = Some(retry_config);
         self
     }
 
     /// Sets a custom prefetch count (QoS).
+    /// Defaults to 1.
     ///
     /// **Warning:** Setting this to a value greater than 1 means your `MessageHandler`
-    /// may be called concurrently from multiple tasks. Ensure your handler is thread-safe
-    /// and prepared for concurrent execution.
-    pub fn with_prefetch_count(mut self, count: u16) -> Self {
-        self.prefetch_count = count;
+    /// may be called concurrently. Ensure your handler is thread-safe.
+    pub fn prefetch_count(mut self, count: u16) -> Self {
+        self.prefetch_count = Some(count);
         self
     }
 
-    /// Gets the exchange name, generating it from the queue name if not provided.
-    pub fn get_exchange_name(&self) -> String {
-        self.exchange_name.clone().unwrap_or_else(|| format!("{}_exchange", self.queue_name))
-    }
-
-    /// Gets the routing key, generating it from the queue name if not provided.
-    pub fn get_routing_key(&self) -> String {
-        self.routing_key.clone().unwrap_or_else(|| format!("{}.process", self.queue_name))
+    /// Builds the final `WorkerConfig`, applying defaults for any unset options.
+    pub fn build(self) -> WorkerConfig {
+        let queue_name = self.queue_name;
+        WorkerConfig {
+            exchange_name: self.exchange_name.unwrap_or_else(|| format!("{}_exchange", queue_name)),
+            routing_key: self.routing_key.unwrap_or_else(|| format!("{}.process", queue_name)),
+            consumer_tag: self.consumer_tag.unwrap_or_else(|| format!("{}_consumer", queue_name)),
+            retry_config: self.retry_config.unwrap_or_default(),
+            prefetch_count: self.prefetch_count.unwrap_or(1),
+            queue_name,
+            rabbitmq_url: self.rabbitmq_url,
+        }
     }
 }
+
 
 /// A generic, reusable RabbitMQ worker that processes messages from a queue.
 pub struct GenericRabbitMQWorker<H: MessageHandler> {
@@ -154,12 +197,9 @@ impl<H: MessageHandler + 'static> GenericRabbitMQWorker<H> {
 
     /// Declares the primary exchange and queue, and binds them together.
     async fn setup_infrastructure(&self, channel: &lapin::Channel) -> Result<(), WorkerError> {
-        let exchange_name = self.config.get_exchange_name();
-        let routing_key = self.config.get_routing_key();
-
         channel
             .exchange_declare(
-                &exchange_name,
+                &self.config.exchange_name,
                 ExchangeKind::Topic,
                 ExchangeDeclareOptions { durable: true, ..Default::default() },
                 FieldTable::default(),
@@ -177,14 +217,14 @@ impl<H: MessageHandler + 'static> GenericRabbitMQWorker<H> {
         channel
             .queue_bind(
                 &self.config.queue_name,
-                &exchange_name,
-                &routing_key,
+                &self.config.exchange_name,
+                &self.config.routing_key,
                 QueueBindOptions::default(),
                 FieldTable::default(),
             )
             .await?;
 
-        log::info!("Queue '{}' and exchange '{}' are set up and bound.", self.config.queue_name, exchange_name);
+        log::info!("Queue '{}' and exchange '{}' are set up and bound.", self.config.queue_name, self.config.exchange_name);
         Ok(())
     }
 
@@ -281,5 +321,48 @@ impl<H: MessageHandler + 'static> GenericRabbitMQWorker<H> {
             first_delivery_time,
             last_retry_time,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::retry::RetryConfig;
+    use std::time::Duration;
+
+    #[test]
+    fn test_worker_config_builder_defaults() {
+        let queue_name = "test_queue".to_string();
+        let url = "amqp://localhost".to_string();
+        let config = WorkerConfig::builder(queue_name.clone(), url.clone()).build();
+
+        assert_eq!(config.queue_name, queue_name);
+        assert_eq!(config.rabbitmq_url, url);
+        assert_eq!(config.exchange_name, "test_queue_exchange");
+        assert_eq!(config.routing_key, "test_queue.process");
+        assert_eq!(config.consumer_tag, "test_queue_consumer");
+        assert_eq!(config.prefetch_count, 1);
+        assert_eq!(config.retry_config.immediate_retries, 1); // Default from RetryConfig
+    }
+
+    #[test]
+    fn test_worker_config_builder_custom_values() {
+        let queue_name = "test_queue".to_string();
+        let url = "amqp://localhost".to_string();
+        let retry_config = RetryConfig::new(5, vec![Duration::from_secs(1)]);
+
+        let config = WorkerConfig::builder(queue_name.clone(), url.clone())
+            .exchange_name("custom_exchange".to_string())
+            .routing_key("custom.key".to_string())
+            .consumer_tag("custom_consumer".to_string())
+            .prefetch_count(10)
+            .retry_config(retry_config.clone())
+            .build();
+
+        assert_eq!(config.exchange_name, "custom_exchange");
+        assert_eq!(config.routing_key, "custom.key");
+        assert_eq!(config.consumer_tag, "custom_consumer");
+        assert_eq!(config.prefetch_count, 10);
+        assert_eq!(config.retry_config.immediate_retries, 5);
     }
 }

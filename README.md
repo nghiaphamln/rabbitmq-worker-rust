@@ -35,7 +35,7 @@ rabbitmq-plugins enable rabbitmq_delayed_message_exchange
 
     ```toml
     [dependencies]
-    rabbitmq-worker = "0.1.0"
+    rabbitmq-worker = "1.0.0"
     serde = { version = "1.0", features = ["derive"] }
     tokio = { version = "1", features = ["full"] }
     log = "0.4"
@@ -97,9 +97,10 @@ rabbitmq-plugins enable rabbitmq_delayed_message_exchange
 
         let handler = Arc::new(MyMessageHandler);
 
-        // Configure the worker
-        let config = WorkerConfig::new("my_app_queue".to_string(), rabbitmq_url)
-            .with_prefetch_count(5);
+        // Configure the worker using the builder pattern
+        let config = WorkerConfig::builder("my_queue".to_string(), rabbitmq_url)
+            .prefetch_count(10)
+            .build();
 
         // The worker can be shared across tasks
         let worker = Arc::new(GenericRabbitMQWorker::new(handler, config));
