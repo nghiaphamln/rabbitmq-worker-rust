@@ -1,0 +1,29 @@
+
+[package]
+name = "rabbitmq-worker"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nghia Pham <nghiaphamln3@gmail.com>"]
+description = "A generic RabbitMQ worker library with built-in retry and dead-letter queue (DLQ) logic."
+license = "Apache-2.0"
+homepage = "https://github.com/nghiaphamln/rabbitmq-worker-rust"
+documentation = "https://docs.rs/rabbitmq-worker"
+readme = "README.md"
+repository = "https://github.com/nghiaphamln/rabbitmq-worker-rust"
+keywords = ["rabbitmq", "worker", "messaging", "retry", "dlq"]
+categories = ["asynchronous", "network-programming"]
+
+[dependencies]
+lapin = "2.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+futures-util = "0.3"
+log = "0.4"
+thiserror = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+dotenv = "0.15"
+env_logger = "0.9"
